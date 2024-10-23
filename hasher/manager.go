@@ -1,8 +1,10 @@
 package hasher
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 )
@@ -40,13 +42,19 @@ func (f *FileManager) Run(filePath string) (string, error) {
 	}
 	f.generateHashDuplicates()
 
-	for k, v := range f.FileHashDuplicates {
-		fmt.Printf("for %s\n", k)
-		for _, f := range v {
-			fmt.Println(f.FilePath)
+	err = f.generateDuplicateFiles(f.FileHashDuplicates)
+	if err != nil {
+		return "", err
+	}
+
+	for k, m := range f.ActualDuplicates {
+		fmt.Printf("for hash %s, duplicate files: \n", k)
+		for _, v := range m {
+			fmt.Printf("%v\n", v.FilePath)
 		}
 	}
-	return "", err
+
+	return "", nil
 }
 
 func (f *FileManager) getHashesForDirectory(directoryPath string) error {
@@ -99,7 +107,7 @@ func (f *FileManager) generateHashDuplicates() {
 			out := hashes[i]
 			in := hashes[k]
 			if out.FilePath != in.FilePath && out.MD5Hash == in.MD5Hash {
-				fmt.Printf("out %s is equal to in %s \n", out.MD5Hash, in.FilePath)
+				fmt.Printf("out %s is equal to in %s \n", out.MD5Hash, in.MD5Hash)
 				if _, ok := f.FileHashDuplicates[out.MD5Hash]; !ok {
 					f.addFileHashDuplicates(out)
 				}
@@ -115,8 +123,59 @@ func (f *FileManager) addFileHashDuplicates(h *File) {
 	f.FileHashDuplicates[h.MD5Hash] = append(f.FileHashDuplicates[h.MD5Hash], h)
 }
 
-func (f *FileManager) generateDuplicateFiles() {
+func (f *FileManager) generateDuplicateFiles(hashDupes map[string][]*File) error {
+	for _, list := range hashDupes {
+		for i := 0; i < len(list); i++ {
+			for k := i + 1; k < len(list); k++ {
+				out := list[i]
+				in := list[k]
+				isDup, err := IsFileDuplicate(out.FilePath, in.FilePath)
+				if err != nil {
+					return fmt.Errorf("error generating duplicate files %w", err)
+				}
+				if isDup {
+					dupeList := f.ActualDuplicates[out.MD5Hash]
+					dupeList = append(dupeList, out)
+					if len(dupeList) == 1 {
+						dupeList = append(dupeList, in)
+					}
+					f.ActualDuplicates[out.MD5Hash] = dupeList
+				}
+			}
+		}
+	}
+	return nil
+}
 
+func IsFileDuplicate(filePathOne, filePathTwo string) (bool, error) {
+	fileOne, err := os.Open(filePathOne)
+	if err != nil {
+		return false, fmt.Errorf("error opening %s: %w", filePathOne, err)
+	}
+	defer fileOne.Close()
+	fileTwo, err := os.Open(filePathTwo)
+	if err != nil {
+		return false, fmt.Errorf("error opening %s: %w", filePathTwo, err)
+	}
+	defer fileTwo.Close()
+
+	bArrOne := make([]byte, 1024)
+	bArrTwo := make([]byte, 1024)
+
+	var readOneErr, readTwoErr error
+	var nOne, nTwo int
+	for !errors.Is(readOneErr, io.EOF) && !errors.Is(readTwoErr, io.EOF) {
+		nOne, readOneErr = fileOne.Read(bArrOne)
+		nTwo, readTwoErr = fileTwo.Read(bArrTwo)
+		if nOne != nTwo || !bytes.Equal(bArrOne, bArrTwo) {
+			return false, nil
+		}
+	}
+	if errors.Is(readOneErr, io.EOF) && errors.Is(readTwoErr, io.EOF) {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (f *FileManager) addFileToDuplicates(h *File) {
