@@ -8,12 +8,6 @@ import (
 )
 
 type (
-	PathGetter interface {
-		GetFilePath() string
-	}
-	LineReader interface {
-		ReadLine(ctx context.Context, lineNumber int) ([]byte, error)
-	}
 	File struct {
 		FilePath string
 		MD5Hash  string
@@ -29,10 +23,9 @@ func New(filePath string) (*File, error) {
 	return &File{FilePath: filePath, MD5Hash: fmt.Sprintf("%x", hash)}, nil
 }
 
-func (f *File) ReadOffset(ctx context.Context, offset int) ([]byte, error) {
-	panic("implement me")
-}
-
-func (f *File) GetFilePath() string {
-	return f.FilePath
+func (f *File) Delete(_ context.Context) error {
+	if err := os.Remove(f.FilePath); err != nil {
+		return fmt.Errorf("failed to delete file %s: %w", f.FilePath, err)
+	}
+	return nil
 }

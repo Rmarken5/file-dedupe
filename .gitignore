@@ -1,1 +1,4 @@
 .idea
+/mem.prof
+/cpu.prof
+/duplicates/
