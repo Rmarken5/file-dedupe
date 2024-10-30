@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"github.com/rmarken5/file-dedupe/hasher"
+	"github.com/rmarken5/file-dedupe/infra"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -17,6 +18,13 @@ var (
 )
 
 func main() {
+	tp, err := infra.InitTracer()
+	if err != nil {
+		log.Fatal("Failed to initialize tracer: ", err)
+	}
+	defer func() {
+		_ = tp.Shutdown(context.Background())
+	}()
 	// Create a CPU profile file
 	f, err := os.Create("cpu.prof")
 	if err != nil {
