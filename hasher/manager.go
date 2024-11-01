@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"io"
 	"os"
 	"sync"
@@ -12,9 +15,10 @@ import (
 
 type (
 	Manager interface {
-		Run(filePath string) (string, error)
+		Run(ctx context.Context, filePath string) (string, error)
 	}
 	FileManager struct {
+		tracer             trace.Tracer
 		Hashes             map[string]*File
 		FileHashDuplicates map[string][]*File
 		ActualDuplicates   map[string][]*File
@@ -26,6 +30,7 @@ type (
 
 func NewManager() *FileManager {
 	return &FileManager{
+		tracer:             otel.Tracer("file manager"),
 		Hashes:             make(map[string]*File),
 		FileHashDuplicates: make(map[string][]*File),
 		ActualDuplicates:   make(map[string][]*File),
@@ -36,6 +41,8 @@ func NewManager() *FileManager {
 }
 
 func (f *FileManager) Run(ctx context.Context, filePath string) (string, error) {
+	ctx, span := f.tracer.Start(ctx, "file-dedupe.filemanger.run")
+	defer span.End()
 
 	err := f.getHashesForDirectory(ctx, filePath)
 	if err != nil {
@@ -57,6 +64,9 @@ func (f *FileManager) Run(ctx context.Context, filePath string) (string, error) 
 }
 
 func (f *FileManager) getHashesForDirectory(ctx context.Context, directoryPath string) error {
+	ctx, span := f.tracer.Start(ctx, "file-dedupe.filemanger.getHashesForDirectory")
+	defer span.End()
+
 	fs, err := os.Open(directoryPath)
 	if err != nil {
 		return err
@@ -99,6 +109,9 @@ func (f *FileManager) addHashToMap(h *File) {
 }
 
 func (f *FileManager) generateHashDuplicates(ctx context.Context) {
+	ctx, span := f.tracer.Start(ctx, "file-dedupe.filemanger.generateHashDuplicates")
+	defer span.End()
+
 	hashes := make([]*File, len(f.Hashes))
 	i := 0
 	for _, file := range f.Hashes {
@@ -113,7 +126,6 @@ func (f *FileManager) generateHashDuplicates(ctx context.Context) {
 		for k := i - 1; k >= 0; k-- {
 			in := hashes[k]
 			if out.FilePath != in.FilePath && out.MD5Hash == in.MD5Hash {
-				fmt.Printf("out %s is equal to in %s \n", out.MD5Hash, in.MD5Hash)
 				if _, ok := f.FileHashDuplicates[out.MD5Hash]; !ok {
 					f.addFileHashDuplicates(out)
 				}
@@ -123,6 +135,7 @@ func (f *FileManager) generateHashDuplicates(ctx context.Context) {
 			}
 		}
 	}
+	span.SetAttributes(attribute.Int("duplicate hashes", len(hashes)))
 }
 
 func removeElementFromSlice[S ~[]*E, E any](i int, s S) []*E {
@@ -136,6 +149,9 @@ func (f *FileManager) addFileHashDuplicates(h *File) {
 }
 
 func (f *FileManager) generateDuplicateFiles(ctx context.Context, hashDupes map[string][]*File) error {
+	ctx, span := f.tracer.Start(ctx, "file-dedupe.filemanger.generateDuplicateFiles")
+	defer span.End()
+
 	for _, list := range hashDupes {
 		var decrementer int
 		for i := len(list) - 1; i > 0; i -= decrementer {
@@ -143,7 +159,7 @@ func (f *FileManager) generateDuplicateFiles(ctx context.Context, hashDupes map[
 			out := list[i]
 			for k := i - 1; k >= 0; k-- {
 				in := list[k]
-				isDup, err := IsFileDuplicate(out.FilePath, in.FilePath)
+				isDup, err := isFileDuplicate(out.FilePath, in.FilePath)
 				if err != nil {
 					return fmt.Errorf("error generating duplicate files %w", err)
 				}
@@ -163,7 +179,7 @@ func (f *FileManager) generateDuplicateFiles(ctx context.Context, hashDupes map[
 	return nil
 }
 
-func IsFileDuplicate(filePathOne, filePathTwo string) (bool, error) {
+func isFileDuplicate(filePathOne, filePathTwo string) (bool, error) {
 	fileOne, err := os.Open(filePathOne)
 	if err != nil {
 		return false, fmt.Errorf("error opening %s: %w", filePathOne, err)
@@ -201,6 +217,9 @@ func (f *FileManager) addFileToDuplicates(h *File) {
 }
 
 func (f *FileManager) displayDuplicates(ctx context.Context) error {
+	ctx, span := f.tracer.Start(ctx, "file-dedupe.filemanger.displayDuplicates")
+	defer span.End()
+
 	for key, list := range f.ActualDuplicates {
 		fmt.Println("The following files are duplicates.")
 		for i, file := range list {

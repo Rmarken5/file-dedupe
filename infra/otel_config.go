@@ -12,7 +12,7 @@ import (
 
 func InitTracer() (*trace.TracerProvider, error) {
 	ctx := context.Background()
-	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpoint("localhost:4318"))
+	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpoint("localhost:4318"), otlptracehttp.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("cannot create new tracing exporter: %w", err)
 	}

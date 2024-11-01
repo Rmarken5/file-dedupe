@@ -5,6 +5,7 @@ import (
 	"flag"
 	"github.com/rmarken5/file-dedupe/hasher"
 	"github.com/rmarken5/file-dedupe/infra"
+	"go.opentelemetry.io/otel"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -25,6 +26,10 @@ func main() {
 	defer func() {
 		_ = tp.Shutdown(context.Background())
 	}()
+	tracer := otel.Tracer("file-dedupe")
+	ctx, span := tracer.Start(context.Background(), "main")
+	defer span.End()
+
 	// Create a CPU profile file
 	f, err := os.Create("cpu.prof")
 	if err != nil {
@@ -49,7 +54,7 @@ func main() {
 	}()
 
 	m := hasher.NewManager()
-	_, err = m.Run(context.Background(), *directory)
+	_, err = m.Run(ctx, *directory)
 	if err != nil {
 		log.Fatal(err)
 	}
